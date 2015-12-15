@@ -1,0 +1,5 @@
+.*.sw?
+.*.un~
+Makefile
+.build
+Packages
