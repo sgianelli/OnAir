@@ -183,7 +183,8 @@ private class JSONParser {
     let json = self.json.trim()
 
     if json[0] == "{" {
-      return try JSONParser.parseObject(json)
+      let (result, _) = try JSONParser.parseObject(json)
+      return result
     } else if json[0] == "[" {
       return try JSONParser.parseArray(json)
     } else {
@@ -239,24 +240,35 @@ private class JSONParser {
     var char = json[startIndex], index = startIndex, result: Any = ""
 
     print("Getting value: \(startIndex) [\(json[(startIndex - 1) ... (startIndex + 1)])]")
-
     if char == "{" {
-
+      print("-- OBJECT")
+      (result, index) = try JSONParser.parseObject(json, startIndex: startIndex)
     } else if char == "[" {
-
+      print("-- ARRAY")
+      (result, index) = try JSONParser.parseArray(json, startIndex: startIndex)
     } else if char == "\"" {
+      var escaped = false
 
+      repeat {
+        escaped = char == "\\"
+
+        index += 1
+        char = json[index]
+      } while char != "\"" || escaped
+
+      result = json[startIndex + 1 ..< index]
+      index += 1
     } else {
       var decimal = false
 
-      while char != "," {
+      while char != "," && char != "]" && char != "}" {
         index += 1
         char = json[index]
 
         decimal = decimal || char == "."
       }
 
-      var value = json[startIndex ..< index]
+      let value = json[startIndex ..< index]
 
       if value == "true" {
         result = true
@@ -274,13 +286,17 @@ private class JSONParser {
     return (result, index)
   }
 
-  static func parseObject(json: String) throws -> [String: Any] {
-    var isKey: Bool = true, temp: String = ""
-    var index = JSONParser.skipWhitespace(json, startIndex: 1)
+  static func parseObject(json: String, startIndex: Int = 0) throws -> (Any, Int) {
+    var index = JSONParser.skipWhitespace(json, startIndex: startIndex + 1)
+    var result = [String: Any](), char = json[index]
 
-    while true {
+    while char != "}" {
       while json[index].isWhitespace() {
         index += 1
+      }
+
+      if json[index] == "}" {
+        break
       }
 
       var (key, keyEnd) = try JSONParser.getKey(json, startIndex: index)
@@ -289,17 +305,39 @@ private class JSONParser {
         keyEnd += 1
       }
 
-      var (value, valueEnd) = try JSONParser.getValue(json, startIndex: keyEnd)
+      let (value, valueEnd) = try JSONParser.getValue(json, startIndex: keyEnd)
 
+      char = json[valueEnd]
       index = valueEnd + 1
 
-      print("[\(key)]: [\(value)]")
+      print("[\(key)]: [\(value)] (\(char))")
+      result[key] = value
     }
 
-    return [:]
+    return (result, index)
   }
 
-  static func parseArray(json: String) throws -> [Any] {
-    return []
+  static func parseArray(json: String, startIndex: Int = 0) throws -> (Any, Int) {
+    var index = JSONParser.skipWhitespace(json, startIndex: startIndex + 1)
+    var result = [Any](), char = json[index]
+
+    while char != "]" {
+      while json[index].isWhitespace() {
+        index += 1
+      }
+
+      if json[index] == "]" {
+        break
+      }
+
+      let (value, valueEnd) = try JSONParser.getValue(json, startIndex: index)
+
+      char = json[valueEnd]
+      index = valueEnd + 1
+      print(" \(result.count): \(value) (\(char))")
+      result.append(value)
+    }
+
+    return (result, index)
   }
 }

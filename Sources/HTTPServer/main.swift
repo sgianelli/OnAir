@@ -9,9 +9,11 @@ var d: [String: [String: Any]] = ["key1": ["id": 123,"enabled": true,"disabled":
 
 try print(JSON.format(d))
 
-var s = "{\"test\": 2, \"test2\": false, \"test3\": true, \"test4\": 1.34, \"key1\": {\"id\": 123,\"enabled\": true,\"disabled\": false,\"friends\": [1,2,3,4]}}"
+var s = "{\"test1\": \"stringy string\", \"test\": 2, \"test2\": false, \"test3\": true, \"test4\": 1.34, \"key1\": {\"id\": 123,\"enabled\": true,\"disabled\": false,\"friends\": [1,2,3,4]}}"
 
-try JSON.parse(s)
+var parsed = try JSON.parse(TestJSON.json1)
+
+print("PARSED: \(parsed)")
 
 func sample(request: HTTPRequest, params: [String: String]) -> HTTPResponse {
   let response = HTTPResponse()
