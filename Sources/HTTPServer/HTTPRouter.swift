@@ -72,7 +72,7 @@ public class HTTPRouter {
   /**
    * Defines all supported HTTP methods as an enum
    */
-  enum HTTPMethod {
+  public enum HTTPMethod {
     case GET, POST, PUT, DELETE
   }
 

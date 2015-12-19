@@ -53,6 +53,11 @@ extension Array: JSONArray {
   }
 }
 
+public class JSONNull {
+
+  init() {}
+}
+
 /**
  * A simple JSON parser and builder to be used until NSJSONSerializer is added
  * to the linux port of Foundation
@@ -72,7 +77,7 @@ public class JSON {
    * Given a json string, returns a data structure constructed with swift
    * primative types.
    */
-  public static func parse(json: String) throws -> Any? {
+  public static func parse(json: String) throws -> Any {
     let parser = JSONParser(json: json)
 
     return try parser.parse()
@@ -151,7 +156,7 @@ public class JSON {
       if let array = value as? JSONArray {
         return try "\(JSON.format(array.asAny()))"
       }
-    } else if let _ = value as? NSNull {
+    } else if let _ = value as? JSONNull {
       return "null"
     } else {
       print("Unsupported type in JSON conversion: \(value) -- Type: \(value.dynamicType)")
@@ -165,8 +170,19 @@ public class JSON {
 
 private class JSONParser {
 
-  enum JSONParserState {
-    case Object, Array, String, Int, Float, Bool
+  private static let Debug = false
+  private static let Error = true
+
+  static func printd(string: String) {
+    if JSONParser.Debug {
+      print(string)
+    }
+  }
+
+  static func printe(string: String) {
+    if JSONParser.Debug {
+      print(string)
+    }
   }
 
   enum JSONParserError: ErrorType {
@@ -182,11 +198,16 @@ private class JSONParser {
   func parse() throws -> Any {
     let json = self.json.trim()
 
+    JSONParser.printd("Parsing JSON doc: \(json)")
+
     if json[0] == "{" {
       let (result, _) = try JSONParser.parseObject(json)
+
       return result
     } else if json[0] == "[" {
-      return try JSONParser.parseArray(json)
+      let (result, _) = try JSONParser.parseArray(json)
+
+      return result
     } else {
       print("Top level error [\(json[0])]")
       throw JSONParserError.InvalidSyntax
@@ -215,7 +236,9 @@ private class JSONParser {
 
   static func getKey(json: String, startIndex: Int = 0) throws -> (String, Int) {
     if json[startIndex] != "\"" {
-      print("Key issue: \(startIndex) [\(json[(startIndex - 1) ... (startIndex + 1)])] \(json)")
+      let str = json[(startIndex - 10) ... (startIndex + 10)]
+      let data = Data(string: str)
+      printe("Key issue: \(startIndex) \(data.description()) \(json[startIndex]) [\(str)]")
       throw JSONParserError.InvalidSyntax
     }
 
@@ -237,14 +260,11 @@ private class JSONParser {
   }
 
   static func getValue(json: String, startIndex: Int = 0) throws -> (Any, Int) {
-    var char = json[startIndex], index = startIndex, result: Any = ""
+    var char = json[startIndex], index = startIndex, result: Any
 
-    print("Getting value: \(startIndex) [\(json[(startIndex - 1) ... (startIndex + 1)])]")
     if char == "{" {
-      print("-- OBJECT")
       (result, index) = try JSONParser.parseObject(json, startIndex: startIndex)
     } else if char == "[" {
-      print("-- ARRAY")
       (result, index) = try JSONParser.parseArray(json, startIndex: startIndex)
     } else if char == "\"" {
       var escaped = false
@@ -261,7 +281,7 @@ private class JSONParser {
     } else {
       var decimal = false
 
-      while char != "," && char != "]" && char != "}" {
+      while char != "," && char != "]" && char != "}" && !char.isWhitespace() {
         index += 1
         char = json[index]
 
@@ -274,14 +294,25 @@ private class JSONParser {
         result = true
       } else if value == "false" {
         result = false
+      } else if value == "null" {
+        result = JSONNull()
       } else if decimal {
-        guard let float = Float(value) else { throw JSONParserError.InvalidSyntax }
+        guard let float = Float(value) else {
+          printe("\(__FILE__): \(__LINE__) Unparsable Float [\(value)]")
+          throw JSONParserError.InvalidSyntax
+        }
         result = float
       } else {
-        guard let int = Int(value) else { throw JSONParserError.InvalidSyntax }
+        guard let int = Int(value) else {
+          printe("\(__FILE__): \(__LINE__) Unparsable Int [\(value)]")
+          throw JSONParserError.InvalidSyntax
+        }
+
         result = int
       }
     }
+
+    printd("Parsed value: \(result)")
 
     return (result, index)
   }
@@ -291,7 +322,7 @@ private class JSONParser {
     var result = [String: Any](), char = json[index]
 
     while char != "}" {
-      while json[index].isWhitespace() {
+      while json[index].isWhitespace() || json[index] == "," {
         index += 1
       }
 
@@ -310,9 +341,10 @@ private class JSONParser {
       char = json[valueEnd]
       index = valueEnd + 1
 
-      print("[\(key)]: [\(value)] (\(char))")
       result[key] = value
     }
+
+    printd("Parsed object: \(result)")
 
     return (result, index)
   }
@@ -322,7 +354,7 @@ private class JSONParser {
     var result = [Any](), char = json[index]
 
     while char != "]" {
-      while json[index].isWhitespace() {
+      while json[index].isWhitespace() || json[index] == "," {
         index += 1
       }
 
@@ -334,9 +366,11 @@ private class JSONParser {
 
       char = json[valueEnd]
       index = valueEnd + 1
-      print(" \(result.count): \(value) (\(char))")
+
       result.append(value)
     }
+
+    printd("Parsed array: \(result)")
 
     return (result, index)
   }

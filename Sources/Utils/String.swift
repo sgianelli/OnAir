@@ -46,6 +46,10 @@ extension String {
 
 public extension Character {
   public func isWhitespace() -> Bool {
-    return self == " " || self == "\n" || self == "\t"
+    return self == " " || self == "\t" || self == "\r" || self.isNewline()
+  }
+
+  public func isNewline() -> Bool {
+    return String(self) == "\n" || String(self) == "\r\n"
   }
 }

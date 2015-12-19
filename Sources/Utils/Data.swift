@@ -7,6 +7,16 @@ import Glibc
 public class Data: SequenceType {
   public var raw: [UInt8] = [UInt8]()
 
+  // MARK: Subscripting
+
+  public subscript(index: Int) -> UInt8 {
+    return self.raw[index]
+  }
+
+  public subscript(range: Range<Int>) -> Data {
+    return Data(data: [UInt8](self.raw[range]))
+  }
+
   // MARK: Initialization
 
   /**
@@ -89,20 +99,28 @@ public class Data: SequenceType {
   }
 
   public func stringValue() -> String? {
-    return String.fromCString(UnsafePointer<Int8>(self.raw.withUnsafeBufferPointer({ $0.baseAddress })))
+    var str = ""
+
+    for i in self.raw {
+      str += "\(UnicodeScalar(i))"
+    }
+
+    return str
+/*    let bufferPointer = self.raw.withUnsafeBufferPointer() { $0 }
+
+    print("Pointer: \(bufferPointer) \(bufferPointer.count)")
+    return String.fromCString(UnsafePointer<Int8>(bufferPointer.baseAddress))*/
   }
 
   // MARK: Debugging
 
   public func description() -> String {
     var description = ""
-    var text = ""
 
     for i in 0..<self.raw.count {
-      description += String(self.raw[i], radix: 16, uppercase: false) + " "//"\(UnicodeScalar(self.raw[i]))"
-      text += "\(UnicodeScalar(self.raw[i]))"
+      description += String(self.raw[i], radix: 16, uppercase: false) + " "
     }
 
-    return "\n\(description)\n\n\(text)\nData Length: \(self.raw.count)"
+    return "\n\(description)\n\n\(self.stringValue())\nData Length: \(self.raw.count)"
   }
 }

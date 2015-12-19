@@ -78,6 +78,16 @@ public class TCPSocketServer {
     private let saddress_in: SocketAddressIn
 
     /**
+      * Callback called when a client connects to the server
+      */
+    var onConnect: ((Int) -> Void)?
+
+    /**
+      * Callback called when a client disconnect from the server
+      */
+    var onClose: ((Int) -> Void)?
+
+    /**
      * Constructs and initializes a Socket object with the necessary parameters
      * to construct a listening TCP socket in the same format as expect by the
      * C socket() API as well as a SocketAddressIn descriptor.
@@ -91,7 +101,7 @@ public class TCPSocketServer {
      * Starts the server with a callback that will receive all the data once it
      * has been received by the server.
      */
-    func start(dataHandler: (Data) -> Data) {
+    func start(dataHandler: (Int, Data) -> Data) {
       let bindStatus = bind(self.serverfd, &self.saddress_in.socketAddressPointer.memory, socklen_t(sizeof(sockaddr)))
 
       if bindStatus < 0 {
@@ -104,18 +114,13 @@ public class TCPSocketServer {
         return
       }
 
-      while (true) {
-        var clientfd: Int32
+      while true {
         let clientAddr: UnsafeMutablePointer<sockaddr> = UnsafeMutablePointer<sockaddr>()
         var len = socklen_t(sizeof(sockaddr_in))
 
-        clientfd = accept(self.serverfd, &clientAddr.memory, &len)
+        let clientfd: Int32 = accept(self.serverfd, &clientAddr.memory, &len)
 
-        self.communicate(clientfd, dataHandler: dataHandler)
-
-        //send(clientfd, buffer, size_t(buffer.count), 0);
-
-        close(clientfd)
+        self.handleConversation(clientfd, dataHandler: dataHandler)
       }
     }
 
@@ -125,8 +130,12 @@ public class TCPSocketServer {
      * callback to process and construct messages. Some day this may be on its
      * own thread for each client.
      */
-    private func communicate(clientfd: Int32, dataHandler: (Data) -> Data) {
+    private func handleConversation(clientfd: Int32, dataHandler: (Int, Data) -> Data) {
       var pieceSize: Int = 0, buffer: [UInt8]
+
+      if let onConnect = self.onConnect {
+        onConnect(Int(clientfd))
+      }
 
       repeat {
         buffer = [UInt8](count: Socket.ReceiveSize, repeatedValue: 0)
@@ -135,12 +144,17 @@ public class TCPSocketServer {
         if pieceSize > 0 {
           let trimmed: [UInt8] = [UInt8](buffer[0..<pieceSize])
 
-          let response = dataHandler(Data(data: trimmed))
+          let response = dataHandler(Int(clientfd), Data(data: trimmed))
 
-          print("Sending: \(response.description())")
           send(clientfd, response.buffer, response.bufferLength, 0)
         }
       } while pieceSize > 0
+
+      if let onClose = self.onClose {
+        onClose(Int(clientfd))
+      }
+
+      close(clientfd)
     }
   }
 
@@ -160,8 +174,17 @@ public class TCPSocketServer {
     self.port = port
   }
 
-  // MARK: Private Methods
+  // MARK: Public Variables
 
+  /**
+    * Callback called when a client connects to the server
+    */
+  public var onConnect: ((Int) -> Void)?
+
+  /**
+    * Callback called when a client disconnect from the server
+    */
+  public var onClose: ((Int) -> Void)?
 
   // MARK: Server State
 
@@ -178,9 +201,11 @@ public class TCPSocketServer {
    * Sets up the TCP socket to start listening for requests on the specified
    * interface.
    */
-  public func start(dataHandler: (Data) -> Data) {
+  public func start(dataHandler: (Int, Data) -> Data) {
     let sockAddr = SocketAddressIn(port: self.port, host: 0, family: UInt16(AF_INET))
     let socket = Socket(domain: AF_INET, type: Int32(SOCK_STREAM.rawValue), proto: 0, socketAddressIn: sockAddr)
+    socket.onConnect = self.onConnect
+    socket.onClose = self.onClose
 
     socket.start(dataHandler)
   }

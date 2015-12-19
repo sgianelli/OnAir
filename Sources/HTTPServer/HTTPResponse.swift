@@ -48,6 +48,7 @@ public class HTTPResponse {
   public var status: Int = 200
   public var body: String = ""
   public var contentType: String = "text/html"
+  public var additionalHeaders = [String: String]()
 
   private var statusMessage: String {
     get {
@@ -64,6 +65,11 @@ public class HTTPResponse {
       var str = "HTTP/1.1 \(self.status) \(self.statusMessage)\n"
       str += "Content-Type: \(self.contentType)\n"
       str += "Content-Length: \(self.body.characters.count)\n"
+
+      for (key, value) in self.additionalHeaders {
+        str += "\(key): \(value)\n"
+      }
+
       str += "\n"
       str += self.body
 

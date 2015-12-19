@@ -1,15 +1,28 @@
 import Utils
 
+/**
+ * A representation of the request received by the server with headers and body
+ * parsed out, including some convenient methods for parsing the body data into
+ * JSON, String, or raw data
+ */
 public class HTTPRequest {
-  public struct HTTPRequestHeader {
-    public let method: String
-    public let path: String
-    public let version: String
-    public let properties: Dictionary<String, String>
 
-    public func description() -> String {
-      return "\(self.version) [\(self.method)]: \(self.path)\n\(self.properties)"
-    }
+  /**
+   * Structure representing the w3c defined HTTP protocol headers and status
+   * information
+   */
+  public struct HTTPRequestHeader {
+    // HTTP Method: GET, POST, PUT, DELETE
+    public let method: String
+
+    // Requested HTTP route
+    public let path: String
+
+    // HTTP version used in request
+    public let version: String
+
+    // HTTP header field hash map
+    public var fields: [String: String]
   }
 
   /**
@@ -18,136 +31,164 @@ public class HTTPRequest {
    * path, HTTP version, HTTP headers (without parsing each attribute just
    * yet), and the remaining body data.
    */
-  private static func parse(data: Data) -> (HTTPRequestHeader, Data) {
+  private static func parse(data: Data) throws -> (HTTPRequestHeader, String) {
+
     /**
-     * httpInfo keeps track of the pieces of the first header line which
-     * usually takes the form:
-     * [POST|GET|...] /this/is/a/route HTTP/1.1
-     *
-     * httpIndex keeps track of what component we are currently on in that line
+     * Given a string, scan until the next whitespace and return the string up
+     * to that point
      */
-    var httpInfo: [String] = ["", "", ""], httpIndex: Int = 0
+    func parseToSpace(content: String, startIndex: Int) -> (String, Int) {
+      var index = startIndex
 
-    // The processed HTTP header key values
-    var properties = Dictionary<String, String>()
+      while !content[index].isWhitespace() { index += 1 }
 
-    // Temp variables to keep track of current strings and whether or not we
-    // are currently parsing a header key
-    var temp: String = "", key: String = "", isKey: Bool = true
-
-    // State of parser -- whether or not we are parsing the info line
-    var keyValueStep: Bool = false
-
-    // Body data object
-    let body: Data = Data()
-
-    // The current position of the data being inspected
-    var index = 0
-
-    while index < data.raw.count {
-      // Current byte being inspected
-      var char: UInt8 = data.raw[index]
-
-      // Advance to next byte
-      index += 1
-
-      // Check to see if we are at the end of the HTTP header which will be
-      // defined as a double new line -- 0xdada
-      if index < data.raw.count - 3 {
-        if char == 0x0d &&
-          data.raw[index] == 0x0a &&
-          data.raw[index + 1] == 0x0d &&
-          data.raw[index + 2] == 0x0a {
-
-          // The header has ended, append the remaining data to the body and
-          // break from the loop
-          body.append([UInt8](data.raw[(index + 3) ..< data.raw.count]))
-
-          break
-        }
-      }
-
-      // Processing information line
-      if !keyValueStep {
-        // Check for whitespace and skip over it
-        if char == 0x0a || char == 0x0d || char == 0x20 {
-          // If we have read something into temp before hitting whitespace,
-          // it means that term has ended and we should get ready to start the
-          // next one
-          if temp.characters.count > 0 {
-            // Check to see if we are at the end of the info line
-            keyValueStep = char == 0x0a || char == 0xd
-
-            // Store info value
-            httpInfo[httpIndex] = temp
-            temp = ""
-            httpIndex += 1
-          }
-
-          continue
-        }
-
-        // Append byte to temporary storage
-        temp += String(UnicodeScalar(char))
-      } else {
-        // Skip over whitespace until we hit a valid character
-        if temp.characters.count == 0 && (char == 0x20 || char == 0x0a || char == 0x0d) {
-          continue
-        }
-
-        if isKey {
-          // Read key into memory until we hit a colon (:)
-          while char != 0x3a {
-            temp += String(UnicodeScalar(char))
-
-            char = data.raw[index]
-
-            index += 1
-          }
-
-          isKey = false
-          key = temp
-          temp = ""
-
-          continue
-        } else {
-          while !(char == 0x0a || char == 0x0d) {
-            temp += String(UnicodeScalar(char))
-
-            char = data.raw[index]
-
-            if char == 0x0a || char == 0x0d {
-              break
-            }
-
-            index += 1
-          }
-
-          properties[key] = temp
-          key = ""
-          temp = ""
-          isKey = true
-
-          continue
-        }
-      }
+      return (content[startIndex ..< index], index)
     }
 
-    let header: HTTPRequestHeader = HTTPRequestHeader(method: httpInfo[0],
-                                                      path: httpInfo[1],
-                                                      version: httpInfo[2],
-                                                      properties: properties)
+    /**
+     * Given a string, scan until the next newline character and return the
+     * string up to that point
+     */
+    func parseToNewline(content: String, startIndex: Int) -> (String, Int) {
+      var index = startIndex
+
+      while !content[index].isNewline() { index += 1 }
+
+      return (content[startIndex ..< index], index)
+    }
+
+    /**
+     * Returns the parsed status line of the reeived HTTP reader. The HTTP
+     * status line takes the form:
+     *
+     * [GET|POST|PUT|DELETE] (/path/requested/from/server) HTTP/(version)
+     */
+    func parseStatusLine(content: String) -> (String, String, String, Int) {
+      var index = 0, info = [String](), char = content[0]
+
+      while !char.isNewline() {
+        let (prop, end) = parseToSpace(content, startIndex: index)
+
+        info.append(prop)
+
+        char = content[end]
+        index = end + 1
+      }
+
+      return (info[0], info[1], info[2], index + 1)
+    }
+
+    /**
+     * Simple check for the end of the HTTP header which is denoted with a
+     * double-newline, after which the body of the request starts
+     */
+    func isDoubleNewline(content: String, startIndex: Int) -> Bool {
+      if content.length < startIndex + 1 {
+        return false
+      }
+
+      let data = Data(string: content[startIndex ... startIndex + 1])
+
+      if data.raw.count == 4 {
+        return data[0] == 0x0d && data[1] == 0x0a && data[2] == 0x0d && data[3] == 0x0a
+      }
+
+      return false
+    }
+
+    /**
+     * Splits a line of the HTTP header fields into a key and value as denoted
+     * by a colon (:) and returns the tuple. This does none of the key-specific
+     * parsing (e.g. User-Agent)
+     */
+    func parseHeaderFields(content: String, startIndex: Int) -> ([String: String], Int) {
+      var index = startIndex - 1, result = [String: String]()
+
+      // Keep parsing until the end of the HTTP header
+      while !isDoubleNewline(content, startIndex: index) {
+        index += 1
+
+        let (key, keyEnd) = parseToSpace(content, startIndex: index)
+
+        index = keyEnd + 1
+
+        let (value, valueEnd) = parseToNewline(content, startIndex: index)
+
+        index = valueEnd
+
+        result[key[0 ..< key.length - 1]] = value
+      }
+
+      return (result, index + 2)
+    }
+
+    // Convert data to a string
+    guard let content = data.stringValue() else { throw HTTPError.IncompleteRequestData }
+
+    // Keep track of the current seek position in the content
+    var index = 0
+
+    // Parse status line
+    let (method, path, version, statusEnd) = parseStatusLine(content)
+
+    index = statusEnd + 1
+
+    // Parse header fields
+    let (fields, fieldsEnd) = parseHeaderFields(content, startIndex: index)
+
+    // Coerce valuse into a meaningful data structure
+    let header = HTTPRequestHeader(method: method, path: path, version: version, fields: fields)
+    // Extract the rest of the content as the body of the request
+    let body = (fieldsEnd >= content.length ? "" : content[fieldsEnd ..< content.length])
+
     return (header, body)
   }
 
-  public let bodyData: Data
+  // The raw body of the HTTP request
+  public let body: String
+
+  // The parsed header data of the HTTP request
   public let header: HTTPRequestHeader
 
-  public init(data: Data) {
-    (self.header, self.bodyData) = HTTPRequest.parse(data)
+  // Convenience method for converting the body to a raw data object
+  private var _bodyAsData: Data?
+  public var bodyAsData: Data? {
+    get {
+      if self._bodyAsData == nil {
+        self._bodyAsData = Data(string: self.body)
+      }
+
+      return self._bodyAsData
+    }
   }
 
-  // MARK: Private Methods
+  // Convenience method for parsing the body as a JSON object
+  private var _bodyAsJson: Any?
+  public var bodyAsJson: Any? {
+    get {
+      if self._bodyAsJson == nil {
+
+        do {
+          try self._bodyAsJson = JSON.parse(self.body)
+        } catch {
+          print(error)
+        }
+      }
+
+      return self._bodyAsJson
+    }
+  }
+
+  // Default constructor for creating an HTTPRequest with a raw data object
+  public init(data: Data) throws {
+    try (self.header, self.body) = HTTPRequest.parse(data)
+  }
+
+  // Constructs an HTTPRequest by copying one and setting a body
+  public init(request: HTTPRequest, body: String) {
+    self.header = request.header
+    self.body = body
+  }
 }
 
 
